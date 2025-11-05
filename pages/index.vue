@@ -1,110 +1,141 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { useTmdbFetch, useImageBaseUrl } from '~/utils/api'; 
-import { NuxtLink } from '#components';
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { NuxtLink } from '#components'
 
-definePageMeta({
-  layout: 'default'
-})
+definePageMeta({ layout: 'default' })
 
-// Tipagem mínima
 interface Movie {
-  id: number;
-  title: string;
-  poster_path: string | null;
-  vote_average: number;
+  id: number
+  title: string
+  poster_path: string | null
+  vote_average: number
+  overview?: string
 }
 
-// 1. Obter o parâmetro de busca da URL
-const route = useRoute();
-const searchQuery = computed(() => route.query.q as string | undefined);
+// runtime config (pega NUXT_PUBLIC_TMDB_API_KEY da .env)
+const config = useRuntimeConfig()
+const API_KEY = config.public.tmdbApiKey || ''
 
-// Define a URL do endpoint e os parâmetros baseados no estado de busca
-// Se houver query, busca por filmes; senão, busca populares
-const endpoint = computed(() => searchQuery.value ? '/search/movie' : '/movie/popular');
+const route = useRoute()
+const q = computed(() => (route.query.q ? String(route.query.q) : ''))
 
-const fetchParams = computed(() => {
-  if (searchQuery.value) {
-    return { query: searchQuery.value };
+const movies = ref<Movie[]>([])
+const pending = ref(false)
+const error = ref<string | null>(null)
+
+// base da imagem
+const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/'
+
+// função que chama a API TMDB (endpoint ex: '/movie/popular' ou '/search/movie')
+async function fetchFromTmdb(endpoint: string, params: Record<string, string | number> = {}) {
+  error.value = null
+  pending.value = true
+  try {
+    const url = new URL(`https://api.themoviedb.org/3${endpoint}`)
+    url.searchParams.set('api_key', API_KEY)
+    url.searchParams.set('language', 'pt-BR')
+    for (const k in params) {
+      if (params[k] !== undefined && params[k] !== null && String(params[k]).length)
+        url.searchParams.set(k, String(params[k]))
+    }
+    const res = await fetch(url.toString())
+    if (!res.ok) throw new Error(`TMDB error ${res.status}`)
+    const data = await res.json()
+    // quando vem objeto com results
+    if (Array.isArray(data.results)) {
+      movies.value = data.results
+    } else if (Array.isArray(data)) {
+      movies.value = data
+    } else {
+      movies.value = []
+    }
+  } catch (err: any) {
+    error.value = err.message || String(err)
+    movies.value = []
+  } finally {
+    pending.value = false
   }
-  return {};
-});
+}
 
-// 2. Fazer a requisição reagindo às mudanças no endpoint/parâmetros
-const { data: moviesData, pending, error } = await useTmdbFetch<{ results: Movie[] }>(
-  endpoint.value, 
-  fetchParams.value
-);
+// decide o que buscar dependendo da query
+async function loadMovies() {
+  if (!API_KEY) {
+    error.value = 'API key não encontrada. Configure NUXT_PUBLIC_TMDB_API_KEY'
+    movies.value = []
+    pending.value = false
+    return
+  }
 
-// 3. Processar dados
-const movies = computed<Movie[]>(() => moviesData.value?.results || []);
-const hasError = computed(() => !!error.value);
-const IMAGE_BASE_URL = useImageBaseUrl();
+  const term = q.value?.trim()
+  if (term) {
+    // busca por termo
+    await fetchFromTmdb('/search/movie', { query: term, page: 1 })
+  } else {
+    // populares
+    await fetchFromTmdb('/movie/popular', { page: 1 })
+  }
+}
 
-// Título dinâmico da página (Com muita fé AGORA DENTRO DO MAIN CONTENT)
-const pageTitle = computed(() => 
-  searchQuery.value 
-    ? `Resultados para "${searchQuery.value}"`
-    : 'Catálogo de Filmes Populares'
-);
+// carrega inicialmente
+onMounted(() => {
+  loadMovies()
+})
+
+// REAGE quando a query muda (sem F5)
+watch(q, () => {
+  loadMovies()
+})
 </script>
 
 <template>
   <div>
-    <!-- TÍTULO DINÂMICO AQUI -->
-    <h1 class="text-4xl font-extrabold text-gray-800 mb-8">{{ pageTitle }}</h1>
+    <h1 class="text-4xl font-extrabold text-black-200 mb-6">
+      {{ q ? `Resultados para "${q}"` : 'Catálogo de Filmes Populares' }}
+    </h1>
 
-    <div v-if="pending" class="text-center py-12">
-      <p class="text-2xl text-blue-500">Carregando filmes...</p>
+    <div v-if="pending" class="text-center py-12 text-gray-400">Carregando filmes...</div>
+
+    <div v-else-if="error" class="text-center py-12 text-red-500">
+      <p>Erro: {{ error }}</p>
     </div>
 
-    <div v-else-if="hasError" class="text-center py-12">
-      <p class="text-2xl text-red-600">
-        Ops! Erro ao carregar os filmes. Verifique sua chave de API ou tente novamente.
-      </p>
-      <pre v-if="error">{{ error }}</pre>
-    </div>
-    
-    <!-- Mensagem de Sem Resultados -->
-    <div v-else-if="movies.length === 0" class="text-center py-12">
-      <p class="text-xl text-gray-500">
-        Nenhum filme encontrado para "{{ searchQuery }}". Tente outra busca.
-      </p>
-      <NuxtLink to="/" class="mt-4 inline-block text-blue-600 hover:underline">
-        Voltar para os Populares
-      </NuxtLink>
+    <div v-else-if="movies.length === 0" class="text-center py-12 text-gray-400">
+      <p>Nenhum filme encontrado{{ q ? ` para "${q}"` : '' }}.</p>
     </div>
 
-    <!-- Lista de Filmes (Grid) -->
     <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
       <NuxtLink
-        v-for="movie in movies"
-        :key="movie.id"
-        :to="`/movies/${movie.id}`"
-        class="bg-white rounded-lg shadow-xl overflow-hidden transition transform hover:scale-[1.03] hover:shadow-2xl"
-        :aria-label="`Ver detalhes de ${movie.title}`"
+        v-for="m in movies"
+        :key="m.id"
+        :to="`/movies/${m.id}`"
+        class="bg-gray-800 text-white rounded-lg overflow-hidden shadow hover:scale-[1.02] transition"
       >
-        <img
-          v-if="movie.poster_path"
-          :src="`${IMAGE_BASE_URL}w500${movie.poster_path}`"
-          :alt="`Pôster de ${movie.title}`"
-          class="w-full h-auto object-cover aspect-[2/3]"
-          loading="lazy"
-        />
-        <div v-else class="w-full aspect-[2/3] bg-gray-200 flex items-center justify-center">
-            <p class="text-sm text-gray-500 p-2 text-center">Sem Pôster</p>
+        <div class="w-full aspect-[2/3] bg-gray-700">
+          <img
+            v-if="m.poster_path"
+            :src="`${IMAGE_BASE_URL}w500${m.poster_path}`"
+            :alt="m.title"
+            class="w-full h-full object-cover"
+            loading="lazy"
+          />
+          <div v-else class="w-full h-full flex items-center justify-center text-gray-300">
+            Sem pôster
+          </div>
         </div>
-        
+
         <div class="p-3">
-          <h2 class="text-base font-semibold truncate text-gray-800" :title="movie.title">
-            {{ movie.title }}
-          </h2>
-          <p class="text-xs text-gray-600 mt-1">
-            Avaliação: 
-            <span class="font-bold text-yellow-600">{{ movie.vote_average.toFixed(1) }}</span>
-          </p>
+          <h2 class="text-sm font-semibold line-clamp-2">{{ m.title }}</h2>
+          <p class="text-xs text-gray-300 mt-1">⭐ {{ m.vote_average?.toFixed(1) || 'N/A' }}</p>
         </div>
       </NuxtLink>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* mantém as imagens proporcionais */
+img {
+  display: block;
+}
+</style>
