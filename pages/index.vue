@@ -41,7 +41,7 @@ const movies = computed<Movie[]>(() => moviesData.value?.results || []);
 const hasError = computed(() => !!error.value);
 const IMAGE_BASE_URL = useImageBaseUrl();
 
-// Título dinâmico da página (AGORA DENTRO DO MAIN CONTENT)
+// Título dinâmico da página (Com muita fé AGORA DENTRO DO MAIN CONTENT)
 const pageTitle = computed(() => 
   searchQuery.value 
     ? `Resultados para "${searchQuery.value}"`
@@ -50,7 +50,6 @@ const pageTitle = computed(() =>
 </script>
 
 <template>
-  <!-- O p-4 foi removido aqui e colocado no layout para o main content -->
   <div>
     <!-- TÍTULO DINÂMICO AQUI -->
     <h1 class="text-4xl font-extrabold text-gray-800 mb-8">{{ pageTitle }}</h1>
