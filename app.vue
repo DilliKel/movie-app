@@ -1,7 +1,5 @@
 <template>
-  <NuxtPage /> 
+  <NuxtLayout>
+    <NuxtPage />
+  </NuxtLayout>
 </template>
-
-<script setup lang="ts">
-// Deixe o script setup vazio
-</script>
