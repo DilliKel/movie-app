@@ -8,7 +8,7 @@ export default defineNuxtConfig({
 
   css: [
     // Seu caminho de CSS local:
-    'C:/Users/enrique/Documents/Desenvolvimento/movie-app/assets/css/main.css'
+    'assets/css/main.css'
   ],
 
   // --- 1. MUDANÇA CRUCIAL PARA RESOLVER O ERRO ---
